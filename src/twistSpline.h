@@ -97,23 +97,45 @@ void multiLinearIndexes(const std::vector<Float> &params, const std::vector<Floa
 	// The params aren't necessarily sorted, so to do the "merge", I have to sort them first.
 	// but, so I can 'unsort' them, I'm doing this the annoying way, by index
 	std::vector<IndexType> pOrder(params.size());
+	if (params.empty() || samp.empty()) {
+		segTs.clear();
+		segIdxs.clear();
+		return;
+	}
+
 	std::iota(pOrder.begin(), pOrder.end(), 0);
 	sort(pOrder.begin(), pOrder.end(), [&params](IndexType i1, IndexType i2) {return params[i1] < params[i2]; });
 
 	IndexType segIdx = 0;
 	segTs.resize(params.size());
 	segIdxs.resize(params.size());
-	bool capped = false;
 	for (IndexType i = 0; i < params.size(); ++i) {
 		Float t = params[pOrder[i]];
-		if (!capped && t >= params[segIdx + 1]) {
-			if (segIdx + 1 >= params.size()) {
-				capped = true;
-			}
+		while ((segIdx + 1) < static_cast<IndexType>(samp.size()) && t >= samp[segIdx + 1]) {
 			++segIdx;
 		}
-		segIdxs[pOrder[i]] = segIdx;
-		segTs[pOrder[i]] = (t - params[segIdx - 1]) / (params[segIdx] - params[segIdx - 1]);
+
+		IndexType segLo = segIdx;
+		if (segLo >= static_cast<IndexType>(samp.size() - 1)) {
+			segLo = samp.size() > 1 ? static_cast<IndexType>(samp.size() - 2) : 0;
+		}
+		IndexType segHi = std::min<IndexType>(segLo + 1, static_cast<IndexType>(samp.size() - 1));
+
+		Float denom = samp[segHi] - samp[segLo];
+		if (segHi == segLo || abs(denom) < static_cast<Float>(1e-12)) {
+			denom = static_cast<Float>(1e-12);
+		}
+
+		Float localT = (t - samp[segLo]) / denom;
+		if (localT < static_cast<Float>(0.0)) {
+			localT = static_cast<Float>(0.0);
+		}
+		else if (localT > static_cast<Float>(1.0)) {
+			localT = static_cast<Float>(1.0);
+		}
+
+		segIdxs[pOrder[i]] = segLo;
+		segTs[pOrder[i]] = localT;
 	}
 }
 
@@ -480,7 +502,7 @@ public:
 			scl = (sv * (lenT - len)) + scales[size(scales) - 1];
 			tan = tangents[size(tangents) - 1];
 			norm = normals[size(normals) - 1];
-			binorm = tbinormals[size(tbinormals) - 1];
+			binorm = binormals[size(binormals) - 1];
 			twist = twistVals[twistVals.size() - 1];
 			return;
 		}
@@ -779,7 +801,7 @@ public:
 	/// Get the entire arclength lookup table
 	std::vector<Float> getSampleLengths() const {
 		std::vector<Float> pLut;
-		IndexType lutCount = static_cast<IndexType>(segments.size()) * lutSteps;
+		IndexType lutCount = static_cast<IndexType>(segments.size()) * (lutSteps + 1);
 		resize(pLut, lutCount);
 		IndexType c = 0;
 		for (auto &seg : segments) {
@@ -1026,6 +1048,12 @@ public:
 				segments[segIdx]->rawMatrixAtParam(segT, tan, norm, binorm, tran, scl, twist);
 			}
 
+			tans[i] = tan;
+			norms[i] = norm;
+			binorms[i] = binorm;
+			trans[i] = tran;
+			scls[i] = scl;
+			twists[i] = twist;
 		}
 	}
 
